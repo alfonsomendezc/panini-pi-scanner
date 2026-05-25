@@ -94,7 +94,7 @@ class PaniniDatabase:
                 if group_name:
                     unique_groups.add(group_name)
 
-            print(sorted(unique_groups))
+            #print(sorted(unique_groups))
             conn = self.connect_database() # connect to database
             cursor = conn.cursor() # create a cursor
 
@@ -121,7 +121,7 @@ class PaniniDatabase:
                 if team:
                     unique_teams.add((team, fifa_code, group_name))
 
-        print(sorted(unique_teams))
+        #print(sorted(unique_teams))
 
         conn = self.connect_database()
         cursor = conn.cursor()
@@ -225,6 +225,208 @@ class PaniniDatabase:
 
         conn.commit()
         conn.close()
+
+    def create_collection_rows(self):
+        conn = self.connect_database()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT sticker_id FROM stickers")
+        stickers = cursor.fetchall()
+            
+        for row in stickers:
+            sticker_id = row["sticker_id"]
+            cursor.execute("""INSERT OR IGNORE INTO collection (sticker_id, quantity) VALUES (?, 0)""", (sticker_id,))
+        conn.commit()
+        conn.close()
+    
+    def get_sticker_by_code(self, code):
+        code = code.strip().upper()
+        if not code:
+            return None
+
+        conn = self.connect_database()
+        cursor = conn.cursor()
+
+        if code:
+            cursor.execute("""SELECT 
+                stickers.sticker_id,
+                stickers.sticker_code,
+                stickers.sticker_number,
+                stickers.player_name,
+                stickers.club,
+                stickers.page_number,
+                stickers.sticker_type,
+                stickers.is_foil,
+                teams.team_name,
+                teams.fifa_code,
+                collection.quantity
+                FROM stickers
+                JOIN collection 
+                    ON stickers.sticker_id = collection.sticker_id
+                LEFT JOIN teams
+                    ON stickers.team_id = teams.team_id
+                WHERE stickers.sticker_code = ? """, (code,))
+        
+            selected_sticker_info = cursor.fetchone()
+
+        print(selected_sticker_info)
+        return(selected_sticker_info)
+
+    def add_sticker(self, code):
+        code = code.strip().upper()
+        if not code:
+            return None
+        conn = self.connect_database()
+        cursor = conn.cursor()
+
+        if code:
+            cursor.execute("""SELECT sticker_id FROM stickers WHERE sticker_code = ? """, (code,))
+
+        sticker = cursor.fetchone()
+
+        if not sticker:
+            conn.close()
+            return None
+        
+        sticker_id = sticker["sticker_id"]
+
+        cursor.execute(
+        """
+        UPDATE collection
+        SET quantity = quantity + 1,
+            date_updated = CURRENT_TIMESTAMP
+        WHERE sticker_id = ?
+        """,
+        (sticker_id,)
+        )
+
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT 
+                stickers.sticker_code,
+                stickers.player_name,
+                teams.team_name,
+                collection.quantity
+            FROM stickers
+            JOIN collection
+                ON stickers.sticker_id = collection.sticker_id
+            LEFT JOIN teams
+                ON stickers.team_id = teams.team_id
+            WHERE stickers.sticker_id = ?
+            """,
+            (sticker_id,)
+        )
+
+        updated_sticker = cursor.fetchone()
+
+        conn.close()
+
+        return updated_sticker
+    
+    def get_missing_stickers(self):
+
+        conn = self.connect_database()
+        cursor = conn.cursor()
+        cursor.execute("""SELECT 
+            stickers.sticker_code,
+            stickers.player_name,
+            teams.team_name,
+            collection.quantity
+            FROM stickers
+            JOIN collection 
+                ON stickers.sticker_id = collection.sticker_id
+            LEFT JOIN teams
+                ON stickers.team_id = teams.team_id
+            WHERE collection.quantity = 0
+            """)
+        
+        missing_stickers = cursor.fetchall()
+        for row in missing_stickers:
+            print(f"Sticker Code: {row['sticker_code']} | Team Name: {row['team_name']} | Player Name: {row['player_name']}")
+
+        conn.close()
+
+    def get_owned_stickers(self):
+
+        conn = self.connect_database()
+        cursor = conn.cursor()
+        cursor.execute("""SELECT 
+            stickers.sticker_code,
+            stickers.player_name,
+            teams.team_name,
+            collection.quantity
+            FROM stickers
+            JOIN collection 
+                ON stickers.sticker_id = collection.sticker_id
+            LEFT JOIN teams
+                ON stickers.team_id = teams.team_id
+            WHERE collection.quantity >= 1
+            """)
+        
+        owned_stickers = cursor.fetchall()
+        for row in owned_stickers:
+            print(f"Sticker Code: {row['sticker_code']} | Team Name: {row['team_name']} | Player Name: {row['player_name']} | Quantity: {row['quantity']}")
+
+
+        conn.close()
+
+    def get_duplicate_stickers(self):
+
+        conn = self.connect_database()
+        cursor = conn.cursor()
+        cursor.execute("""SELECT 
+            stickers.sticker_code,
+            stickers.player_name,
+            teams.team_name,
+            collection.quantity
+            FROM stickers
+            JOIN collection 
+                ON stickers.sticker_id = collection.sticker_id
+            LEFT JOIN teams
+                ON stickers.team_id = teams.team_id
+            WHERE collection.quantity > 1
+            """)
+        
+        duplicate_stickers = cursor.fetchall()
+        for row in duplicate_stickers:
+            print(f"Sticker Code: {row['sticker_code']} | Team Name: {row['team_name']} | Player Name: {row['player_name']} | Quantity: {row['quantity']}")
+        conn.close()
+
+    def get_team_progress(self, team):
+
+        team = team.strip()
+        if not team:
+            return None
+        
+        conn = self.connect_database()
+        cursor = conn.cursor()
+        cursor.execute("""SELECT 
+            stickers.sticker_code,
+            stickers.player_name,
+            teams.team_id,
+            teams.team_name,
+            teams.fifa_code,
+            groups.group_name,
+            collection.quantity
+            FROM stickers
+            JOIN collection 
+                ON stickers.sticker_id = collection.sticker_id
+            LEFT JOIN teams
+                ON stickers.team_id = teams.team_id
+            JOIN groups
+                ON teams.group_id = groups.group_id
+            WHERE teams.team_name = ?""", (team,))
+        
+        team_stickers = cursor.fetchall()
+        for row in team_stickers:
+            print(f"Sticker Code: {row['sticker_code']} | Team Name: {row['team_name']} | Player Name: {row['player_name']} | Quantity: {row['quantity']}")
+        
+        conn.close()
+        return team_stickers
+
+        
 
 
 
